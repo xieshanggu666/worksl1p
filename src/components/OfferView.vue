@@ -57,6 +57,11 @@ function onboardingOf(a) {
 }
 function goOnboarding() { store.goView('onboarding') }
 
+// 入职背调联动：确认入职（accepted→joined）要求最新一单背调「复核通过」（与服务端 markOfferJoined 门槛同口径）
+function bgOf(a) { return store.latestBgCheckOf(a.id) }
+function bgPassed(a) { return store.bgCheckPassedOf(a.id) }
+function goBgCheck() { store.goView('bgcheck') }
+
 const ofStatus = s => ({
   pending: ['⏳', '待回应', 'var(--accent2)'], accepted: ['✅', '已接受', 'var(--green)'],
   rejected: ['❌', '已拒绝', 'var(--red)'], joined: ['🎉', '已入职', 'var(--green)'],
@@ -110,10 +115,15 @@ function busy(id) { return !!store.pending[`offer:${id}`] }
                 <button class="primary sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="setStatus(a, 'rejected')">拒绝</button>
                 <button class="warn sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="withdraw(a)">撤回</button>
               </template>
-              <!-- 已接受（=录用待入职）：确认入职或撤回；入职交接在「入职交接」页办理 -->
+              <!-- 已接受（=录用待入职）：确认入职或撤回；入职交接在「入职交接」页办理；确认入职需背调复核通过 -->
               <template v-else-if="a.offer.status === 'accepted'">
-                <button class="succ sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="setStatus(a, 'joined')">确认入职</button>
+                <button class="succ sm" :disabled="busy(a.offer.id) || !isRecruiter || !bgPassed(a)"
+                  :title="bgPassed(a) ? '确认入职' : '需背调结论复核通过后才能确认入职（🔍 入职背调）'"
+                  @click="setStatus(a, 'joined')">确认入职</button>
                 <button class="warn sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="withdraw(a)">撤回</button>
+                <button class="ghost sm bg-btn" :class="{ ok: bgPassed(a) }" @click="goBgCheck">
+                  {{ bgOf(a) ? `🔍 ${bgOf(a).status_label}` : '🔍 发起背调' }}
+                </button>
                 <button class="ghost sm onb-btn" @click="goOnboarding">
                   {{ onboardingOf(a) ? `🧳 交接中（${onboardingOf(a).phase_label}）` : '🧳 入职交接' }}
                 </button>
@@ -196,4 +206,6 @@ button.sm { font-size: 11px; padding: 4px 9px; }
 .appr-pending-chip { font-size: 11px; color: var(--accent2); background: rgba(255,209,102,.1); border: 1px solid rgba(255,209,102,.4); border-radius: 10px; padding: 3px 9px; white-space: nowrap; }
 .band-tip { font-size: 12px; color: var(--accent2); background: rgba(255,209,102,.1); border: 1px solid rgba(255,209,102,.35); border-radius: 8px; padding: 7px 10px; margin-bottom: 12px; }
 .onb-btn { color: var(--green); border-color: rgba(87,214,160,.45); }
+.bg-btn { color: var(--accent); border-color: rgba(91,140,255,.45); }
+.bg-btn.ok { color: var(--green); border-color: rgba(87,214,160,.45); }
 </style>

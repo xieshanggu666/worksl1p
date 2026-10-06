@@ -487,6 +487,60 @@ CREATE TABLE IF NOT EXISTS onboarding_events (
 );
 CREATE INDEX IF NOT EXISTS idx_onb_events_onb ON onboarding_events(onboarding_id, id);
 
+-- ---------------- 入职背调模块 ----------------
+-- 背调主单：已录用（Offer 已接受）候选人由招聘负责人发起核查、登记核查项与结论，
+-- 用人经理复核后结论生效；生效结论（passed）是「确认报到 / Offer 确认入职」的统一前置门槛，
+-- 撤销结论（revoked）后门槛立即重新拦截；同一应聘同时仅允许一条进行中背调
+CREATE TABLE IF NOT EXISTS bg_checks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  application_id INTEGER NOT NULL,
+  candidate_id INTEGER NOT NULL DEFAULT 0,
+  position_id INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending 核查中/reviewing 待复核/passed 通过/failed 未通过/revoked 已撤销/cancelled 已取消
+  items TEXT NOT NULL DEFAULT '[]',       -- 核查项清单 JSON [{key,name,required,status,note}]
+  note TEXT NOT NULL DEFAULT '',          -- 发起备注
+  conclusion TEXT NOT NULL DEFAULT '',    -- pass/fail（提交复核时登记，复核通过后生效）
+  conclusion_note TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_by_name TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT '',
+  submitted_at TEXT NOT NULL DEFAULT '',  -- 提交复核时间
+  reviewed_by TEXT NOT NULL DEFAULT '',   -- 用人经理复核
+  reviewed_by_name TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  review_note TEXT NOT NULL DEFAULT '',
+  effective_at TEXT NOT NULL DEFAULT '',  -- 结论生效时间（复核通过）
+  revoked_at TEXT NOT NULL DEFAULT '',
+  revoked_by TEXT NOT NULL DEFAULT '',
+  revoked_by_name TEXT NOT NULL DEFAULT '',
+  revoke_reason TEXT NOT NULL DEFAULT '',
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  cancelled_at TEXT NOT NULL DEFAULT '',
+  backfilled INTEGER NOT NULL DEFAULT 0,  -- 历史已入职数据补录
+  updated_at TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1      -- 乐观锁
+);
+CREATE INDEX IF NOT EXISTS idx_bg_checks_app ON bg_checks(application_id, id);
+-- 进行中（核查中/待复核）的背调单同一应聘唯一；生效/撤销/取消后可重新发起
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bg_checks_app_active
+  ON bg_checks(application_id) WHERE status IN ('pending','reviewing');
+
+-- 背调留痕：发起/核查项更新/提交复核/复核通过/退回/催办/撤销/取消/补录，只追加不改写
+CREATE TABLE IF NOT EXISTS bg_check_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  check_id INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,                 -- create/items_update/submit/review_approve/review_return/remind/revoke/cancel/migrate
+  party TEXT NOT NULL DEFAULT 'system', -- recruiter/hiring_manager/system
+  actor_id TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT '',
+  actor_role TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_bg_events_check ON bg_check_events(check_id, id);
+
 -- 不可篡改兜底：危机审计链拒绝 UPDATE / DELETE（应用层哈希校验 + 数据库触发器双重保护）
 CREATE TRIGGER IF NOT EXISTS trg_crisis_entries_no_update
 BEFORE UPDATE ON crisis_audit_entries

@@ -7,6 +7,7 @@ import { router as scheduleRouter, getScheduleState, cancelAppointmentsForStage 
 import {
   router as onboardingRouter, bindOnboardingCore, cancelOnboardingForApp, getOnboardingState
 } from './onboarding.js'
+import { router as bgCheckRouter, assertBgCheckPassed, getBgCheckState } from './bgcheck.js'
 
 const app = express()
 app.use(express.json())
@@ -456,7 +457,8 @@ app.get('/api/state', (req, res) => {
     defaultStrategy: { weights: { ...DEFAULT_WEIGHTS }, keywordCap: DEFAULT_KEYWORD_CAP },
     ...getCrisisState(),
     ...getScheduleState(),
-    ...getOnboardingState()
+    ...getOnboardingState(),
+    ...getBgCheckState()
   })
 })
 
@@ -767,6 +769,9 @@ function markOfferJoined(app, { operator, note = '' } = {}) {
   if (!of) badRequest('该候选人没有 Offer 记录，无法确认入职', 'offer_missing')
   if (of.status === 'joined') return { idempotent: true, version: num(app.version), offerId: of.id }
   if (of.status !== 'accepted') badRequest(`Offer 当前为「${of.status}」状态，不能确认入职`, 'offer_not_accepted')
+  // 入职背调门槛：该应聘最新一单背调必须「复核通过」；撤销/不通过/核查中均实时拦截
+  // （历史已入职记录已在上方幂等返回，不受此门槛影响）
+  assertBgCheckPassed(app.id)
   const stamp = ts()
   operator = operator || app.recruiter || 'HR-Sandy'
   db.prepare('UPDATE offers SET status=?, joined_at=COALESCE(NULLIF(joined_at,\'\'),?), decided_at=? WHERE id=?')
@@ -1650,6 +1655,8 @@ app.use('/api/schedule', scheduleRouter)
 // 候选人入职交接（资料确认→审批→报到→试用交接；报到回写已录用流程）
 bindOnboardingCore({ markOfferJoined })
 app.use('/api/onboardings', onboardingRouter)
+// 入职背调（招聘负责人发起→用人经理复核→结论决定能否报到；撤销结论同步拦截 Offer 入职）
+app.use('/api/bgchecks', bgCheckRouter)
 
 // 统一业务错误出口：ApiError 携带状态码与错误码，其余错误按 500 返回
 // eslint-disable-next-line no-unused-vars

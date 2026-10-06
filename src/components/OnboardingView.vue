@@ -174,6 +174,11 @@ function confirmCancel() {
   cancelId.value = null
 }
 
+// ---------------- 入职背调门槛（报到前必须复核通过，与服务端 markOfferJoined 同口径） ----------------
+const bgOfDetail = computed(() => detail.value ? store.latestBgCheckOf(detail.value.application_id) : null)
+const bgPassed = computed(() => detail.value ? store.bgCheckPassedOf(detail.value.application_id) : false)
+function goBgCheck() { store.goView('bgcheck') }
+
 function evTime(t) { return t ? String(t).replace('T', ' ').slice(0, 16) : '' }
 </script>
 
@@ -372,13 +377,20 @@ function evTime(t) { return t ? String(t).replace('T', ' ').slice(0, 16) : '' }
           <div class="block" v-if="detail.phase === 'checkin'">
             <h4>③ 报到登记</h4>
             <div class="check-info">审批已通过（{{ detail.decided_by_name }}），等待候选人按约定 {{ detail.entry_date }} 报到。报到确认后系统将把 Offer 回写为「已入职」并进入试用交接。</div>
+            <div class="bg-gate" :class="{ ok: bgPassed }">
+              🔍 入职背调：{{ bgOfDetail ? bgOfDetail.status_label : '未发起' }}
+              <template v-if="!bgPassed"> — 需结论复核通过后才能确认报到</template>
+              <button class="ghost sm" @click="goBgCheck">前往背调</button>
+            </div>
             <div class="pgrid">
               <label>实际报到日期<input type="date" v-model="checkinDate" :disabled="!isRecruiter" /></label>
               <label>试用截止日期<input type="date" v-model="probationEnd" :disabled="!isRecruiter" /></label>
               <label class="span2">报到备注<input v-model="checkinNote" placeholder="工位/陪同人等（可选）" :disabled="!isRecruiter" /></label>
             </div>
             <div class="block-acts" v-if="isRecruiter">
-              <button class="primary" :disabled="busy(`onb-checkin:${detail.id}`)" @click="confirmCheckin">🏢 确认报到并回写已入职</button>
+              <button class="primary" :disabled="busy(`onb-checkin:${detail.id}`) || !bgPassed"
+                :title="bgPassed ? '确认报到并回写已入职' : '背调结论复核通过后才能确认报到'"
+                @click="confirmCheckin">🏢 确认报到并回写已入职</button>
               <button class="warn" @click="openNoShow(detail)">⚠️ 登记未报到</button>
             </div>
           </div>
@@ -565,6 +577,9 @@ button.sm { font-size: 11px; padding: 4px 9px; }
 .approval-chain > em { font-style: normal; color: var(--muted); }
 .mat-summary { font-size: 12.5px; color: var(--muted); background: rgba(13,18,32,.3); border-radius: 8px; padding: 9px 11px; }
 .check-info { font-size: 12.5px; color: var(--muted); }
+.bg-gate { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--accent2); background: rgba(255,209,102,.08); border: 1px solid rgba(255,209,102,.35); border-radius: 8px; padding: 8px 11px; }
+.bg-gate.ok { color: var(--green); background: rgba(87,214,160,.08); border-color: rgba(87,214,160,.35); }
+.bg-gate button { margin-left: auto; font-size: 11px; padding: 3px 9px; }
 .ho-list { display: flex; flex-direction: column; gap: 7px; }
 .ho-item { display: grid; grid-template-columns: 1fr 120px 80px; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px; background: rgba(13,18,32,.25); }
 .ho-item.done { border-color: rgba(87,214,160,.35); opacity: .92; }

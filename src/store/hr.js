@@ -57,6 +57,9 @@ export const useHrStore = defineStore('hr', {
     // 候选人入职交接
     onboardings: s => s.data?.onboardings || [],
     onboardingMeta: s => s.data?.onboardingMeta || { phases: [], actionLabels: {}, partyLabels: {}, defaultMaterials: [], defaultHandover: [] },
+    // 入职背调
+    bgChecks: s => s.data?.bgChecks || [],
+    bgCheckMeta: s => s.data?.bgCheckMeta || { statusLabels: {}, actionLabels: {}, partyLabels: {}, itemStatusLabels: {}, defaultItems: [] },
     defaultStrategy: s => s.data?.defaultStrategy || { weights: { skill: 0.4, year: 0.2, salary: 0.15, edu: 0.15, city: 0.1 }, keywordCap: 5 },
     openPositions: s => (s.data?.positions || []).filter(p => p.status === 'open'),
     isBusy: s => key => !!s.pending[key],
@@ -106,7 +109,25 @@ export const useHrStore = defineStore('hr', {
     // 某应聘进行中的入职交接单（无则 null）
     activeOnboardingOf: s => appId =>
       (s.data?.onboardings || []).find(ob => ob.application_id === appId &&
-        ['profile', 'approval', 'checkin', 'handover'].includes(ob.phase)) || null
+        ['profile', 'approval', 'checkin', 'handover'].includes(ob.phase)) || null,
+    // 入职背调待办：招聘负责人=核查中待登记结论；用人经理=待复核
+    bgCheckTodoCount() {
+      return this.bgChecks.filter(c => {
+        if (this.myRole === 'recruiter') return c.status === 'pending'
+        if (this.myRole === 'hiring_manager') return c.status === 'reviewing'
+        return false
+      }).length
+    },
+    // 某应聘最新一单背调（bgChecks 按 id 倒序，首个即最新；无则 null）
+    latestBgCheckOf: s => appId =>
+      (s.data?.bgChecks || []).find(c => c.application_id === appId) || null,
+    // 某应聘是否有进行中（核查中/待复核）的背调
+    activeBgCheckOf: s => appId =>
+      (s.data?.bgChecks || []).find(c => c.application_id === appId && ['pending', 'reviewing'].includes(c.status)) || null,
+    // 该应聘当前是否具备「可入职」的背调结论（最新一单已复核通过）——与服务端 markOfferJoined 门槛同口径
+    bgCheckPassedOf() {
+      return appId => this.latestBgCheckOf(appId)?.status === 'passed'
+    }
   },
   actions: {
     notify(type, msg) {
@@ -435,6 +456,39 @@ export const useHrStore = defineStore('hr', {
     cancelOnboarding(id, reason) {
       return this.runBusy(`onb-cancel:${id}`, () =>
         this.api('POST', `/onboardings/${id}/cancel`, { reason }, { success: '入职交接已撤销' }))
+    },
+    // ---------------- 入职背调 ----------------
+    startBgCheck(applicationId, note) {
+      return this.runBusy(`bg-new:${applicationId}`, () =>
+        this.api('POST', '/bgchecks', { application_id: applicationId, note },
+          { success: '入职背调已发起，请逐项核查' }))
+    },
+    updateBgCheckItems(id, items) {
+      return this.runBusy(`bg-items:${id}:${Date.now()}`, () =>
+        this.api('PUT', `/bgchecks/${id}/items`, { items }))
+    },
+    submitBgCheck(id, conclusion, conclusionNote, version) {
+      return this.runBusy(`bg-submit:${id}`, () =>
+        this.api('POST', `/bgchecks/${id}/submit`, { conclusion, conclusion_note: conclusionNote, version },
+          { success: '背调结论已提交，待用人经理复核' }))
+    },
+    reviewBgCheck(id, payload) {
+      return this.runBusy(`bg-review:${id}`, () =>
+        this.api('POST', `/bgchecks/${id}/review`, payload,
+          payload.action === 'approve' ? { success: '复核通过，背调结论已生效' } : { success: '已退回招聘负责人补充核查' }))
+    },
+    remindBgCheck(id) {
+      return this.runBusy(`bg-remind:${id}`, () =>
+        this.api('POST', `/bgchecks/${id}/remind`, {}, { success: '已提醒用人经理尽快复核' }))
+    },
+    revokeBgCheck(id, reason, version) {
+      return this.runBusy(`bg-revoke:${id}`, () =>
+        this.api('POST', `/bgchecks/${id}/revoke`, { reason, version },
+          { success: '背调结论已撤销，该应聘入职已同步拦截' }))
+    },
+    cancelBgCheck(id, reason) {
+      return this.runBusy(`bg-cancel:${id}`, () =>
+        this.api('POST', `/bgchecks/${id}/cancel`, { reason }, { success: '背调已取消' }))
     }
   }
 })
