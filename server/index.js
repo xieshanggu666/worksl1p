@@ -7,6 +7,9 @@ import { router as scheduleRouter, getScheduleState, cancelAppointmentsForStage 
 import {
   router as onboardingRouter, bindOnboardingCore, cancelOnboardingForApp, getOnboardingState
 } from './onboarding.js'
+import {
+  router as backgroundCheckRouter, cancelBackgroundCheckForApp, getCheckGate, getBackgroundCheckState
+} from './background-check.js'
 
 const app = express()
 app.use(express.json())
@@ -456,7 +459,8 @@ app.get('/api/state', (req, res) => {
     defaultStrategy: { weights: { ...DEFAULT_WEIGHTS }, keywordCap: DEFAULT_KEYWORD_CAP },
     ...getCrisisState(),
     ...getScheduleState(),
-    ...getOnboardingState()
+    ...getOnboardingState(),
+    ...getBackgroundCheckState()
   })
 })
 
@@ -718,6 +722,8 @@ function rollbackStage(app, { operator, expectedVersion, reason = '' }) {
     withdrawAcceptedOffer(app, { operator, reason })
     // 录用异常回退：进行中的入职交接同事务被动中止
     cancelOnboardingForApp(app.id, { reason: `已录用流程异常回退：${reason || '回退至 Offer 阶段'}`, actor: { id: '', name: operator || 'HR-Sandy', role: 'recruiter' } })
+    // 录用异常回退：进行中的入职背调同事务被动撤销（撤销结论/整单撤销后需重新发起）
+    cancelBackgroundCheckForApp(app.id, { reason: `已录用流程异常回退：${reason || '回退至 Offer 阶段'}`, actor: { id: '', name: operator || 'HR-Sandy', role: 'recruiter' } })
   }
   return moveStage(app, target, { eventType: 'rollback', operator, fromStage: app.stage })
 }
@@ -767,6 +773,21 @@ function markOfferJoined(app, { operator, note = '' } = {}) {
   if (!of) badRequest('该候选人没有 Offer 记录，无法确认入职', 'offer_missing')
   if (of.status === 'joined') return { idempotent: true, version: num(app.version), offerId: of.id }
   if (of.status !== 'accepted') badRequest(`Offer 当前为「${of.status}」状态，不能确认入职`, 'offer_not_accepted')
+  // 入职背调统一闸门：只有背调结论「通过」（或历史免核查）才允许 accepted→joined；
+  // Offer 页「确认入职」与入职交接「确认报到」共用本函数，撤销背调结论后两处同步被拦
+  const gate = getCheckGate(app.id)
+  if (!gate.ok) {
+    if (gate.reason === 'missing') {
+      conflict('候选人尚未完成入职背调，请先在「入职背调」发起核查并取得「通过」结论后再办理报到', 'bgc_required')
+    }
+    if (gate.reason === 'reviewing') {
+      conflict('背调尚在用人经理复核中，结论未出，不能确认入职/报到', 'bgc_reviewing')
+    }
+    if (gate.reason === 'failed') {
+      conflict('背调结论为「不通过」，候选人不能报到入职；如需放行请重新复核并给出通过结论', 'bgc_failed')
+    }
+    conflict('背调未通过（背调单已撤销/未完成），不能确认入职', 'bgc_not_passed')
+  }
   const stamp = ts()
   operator = operator || app.recruiter || 'HR-Sandy'
   db.prepare('UPDATE offers SET status=?, joined_at=COALESCE(NULLIF(joined_at,\'\'),?), decided_at=? WHERE id=?')
@@ -1222,6 +1243,8 @@ app.post('/api/offers/:id', (req, res, next) => {
           // 已录用流程回退：同事务被动中止进行中的入职交接（通知/上链与业务一起提交或回滚）
           if (hiredBefore || acceptedBefore) {
             cancelOnboardingForApp(a.id, { reason: `Offer 撤回：${b.note || of.note || 'HR 撤回 Offer'}`, actor: { id: '', name: operator, role: 'recruiter' } })
+            // 已接受 Offer 撤回：进行中的入职背调（含已出结论）同事务被动撤销，报到闸门关闭
+            cancelBackgroundCheckForApp(a.id, { reason: `Offer 撤回：${b.note || of.note || 'HR 撤回 Offer'}`, actor: { id: '', name: operator, role: 'recruiter' } })
           }
         }
       }
@@ -1650,6 +1673,8 @@ app.use('/api/schedule', scheduleRouter)
 // 候选人入职交接（资料确认→审批→报到→试用交接；报到回写已录用流程）
 bindOnboardingCore({ markOfferJoined })
 app.use('/api/onboardings', onboardingRouter)
+// 入职背调（招聘负责人发起核查→用人经理复核；通过结论是确认入职/报到的统一闸门）
+app.use('/api/background-checks', backgroundCheckRouter)
 
 // 统一业务错误出口：ApiError 携带状态码与错误码，其余错误按 500 返回
 // eslint-disable-next-line no-unused-vars

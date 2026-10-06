@@ -13,6 +13,7 @@ import ApprovalView from '@/components/ApprovalView.vue'
 import ReportsView from '@/components/ReportsView.vue'
 import CrisisView from '@/components/CrisisView.vue'
 import OnboardingView from '@/components/OnboardingView.vue'
+import BackgroundCheckView from '@/components/BackgroundCheckView.vue'
 
 const store = useHrStore()
 const view = ref('overview')
@@ -27,6 +28,7 @@ const navs = [
   { k: 'interview', icon: '💬', label: '面试管理' },
   { k: 'schedule', icon: '📅', label: '预约沟通' },
   { k: 'offer', icon: '📄', label: 'Offer 管理' },
+  { k: 'background', icon: '🔍', label: '入职背调' },
   { k: 'onboarding', icon: '🧳', label: '入职交接' },
   { k: 'approval', icon: '✅', label: '审批中心' },
   { k: 'crisis', icon: '🛡️', label: '危机审计' },
@@ -50,7 +52,9 @@ const notifyIcon = {
   stage_rejected: '⛔',
   onb_profile_started: '📋', onb_submitted: '🧳', onb_resubmitted: '🔁',
   onb_returned: '↩️', onb_approved: '✅', onb_checkin: '🏢',
-  onb_noshow: '⚠️', onb_completed: '🎉', onb_cancelled: '🚫'
+  onb_noshow: '⚠️', onb_completed: '🎉', onb_cancelled: '🚫',
+  bgc_submitted: '🔍', bgc_passed: '✅', bgc_failed: '⛔',
+  bgc_revoked: '🔓', bgc_cancelled: '🚫', bgc_remind: '⏰'
 }
 
 function onSwitchUser(e) {
@@ -69,6 +73,7 @@ function openNotify(n) {
   showNotify.value = false
   if (String(n?.type || '').startsWith('crisis_')) view.value = 'crisis'
   else if (String(n?.type || '').startsWith('sched_')) view.value = 'schedule'
+  else if (String(n?.type || '').startsWith('bgc_')) view.value = 'background'
   else if (String(n?.type || '').startsWith('onb_')) view.value = 'onboarding'
   else if (String(n?.type || '').startsWith('stage_')) view.value = 'pipeline'
   else view.value = 'approval'
@@ -96,6 +101,9 @@ watch(() => store.requestedView, v => { if (v) { view.value = v; store.requested
             </em>
             <em v-else-if="n.k === 'schedule' && store.scheduleTodoCount" class="nav-badge sched-badge">
               {{ store.scheduleTodoCount }}
+            </em>
+            <em v-else-if="n.k === 'background' && store.bgcTodoCount" class="nav-badge bgc-badge">
+              {{ store.bgcTodoCount }}
             </em>
             <em v-else-if="n.k === 'onboarding' && store.onboardingTodoCount" class="nav-badge onb-badge">
               {{ store.onboardingTodoCount }}
@@ -159,6 +167,7 @@ watch(() => store.requestedView, v => { if (v) { view.value = v; store.requested
         <InterviewView v-else-if="view === 'interview'" />
         <ScheduleView v-else-if="view === 'schedule'" />
         <OfferView v-else-if="view === 'offer'" />
+        <BackgroundCheckView v-else-if="view === 'background'" />
         <OnboardingView v-else-if="view === 'onboarding'" />
         <ApprovalView v-else-if="view === 'approval'" />
         <CrisisView v-else-if="view === 'crisis'" />
@@ -197,6 +206,7 @@ main { flex: 1; min-width: 0; }
 .nav-badge { margin-left: auto; font-style: normal; font-size: 10px; min-width: 17px; height: 17px; border-radius: 9px; background: var(--red); color: #fff; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
 .nav-badge.crisis-badge { background: var(--purple); }
 .nav-badge.sched-badge { background: var(--accent2); color: #1a1400; }
+.nav-badge.bgc-badge { background: #4fc3f7; color: #04263a; }
 .nav-badge.onb-badge { background: var(--green); color: #06231a; }
 .idzone { display: flex; align-items: center; gap: 10px; }
 .idchip { display: flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 4px 6px 4px 12px; font-size: 13px; }

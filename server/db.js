@@ -487,6 +487,61 @@ CREATE TABLE IF NOT EXISTS onboarding_events (
 );
 CREATE INDEX IF NOT EXISTS idx_onb_events_onb ON onboarding_events(onboarding_id, id);
 
+-- ---------------- 入职背调模块 ----------------
+-- 背调主单：候选人接受 Offer（录用）后由招聘负责人发起核查，用人经理复核给出结论；
+-- 结论 pass 是「确认入职/报到」的统一前置闸门（Offer 页与入职交接共用 markOfferJoined）；
+-- 撤销结论（pass/fail → reviewing）立即关闭闸门；同一应聘同时仅允许一条进行中背调（部分唯一索引）
+CREATE TABLE IF NOT EXISTS background_checks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  application_id INTEGER NOT NULL,
+  candidate_id INTEGER NOT NULL DEFAULT 0,
+  position_id INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'reviewing', -- reviewing/passed/failed/cancelled/exempt
+  items TEXT NOT NULL DEFAULT '[]',          -- 核查项清单 JSON（身份/学历/履历/竞业/犯罪记录等）
+  scope_note TEXT NOT NULL DEFAULT '',       -- 发起时填写的核查范围/备注
+  initiated_by TEXT NOT NULL DEFAULT '',
+  initiated_by_name TEXT NOT NULL DEFAULT '',
+  initiated_at TEXT NOT NULL DEFAULT '',
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_by_name TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  conclusion TEXT NOT NULL DEFAULT '',       -- pass/fail（与 status 镜像，便于检索）
+  conclusion_note TEXT NOT NULL DEFAULT '',
+  revoked_by TEXT NOT NULL DEFAULT '',
+  revoked_by_name TEXT NOT NULL DEFAULT '',
+  revoked_at TEXT NOT NULL DEFAULT '',
+  revoke_reason TEXT NOT NULL DEFAULT '',
+  cancel_kind TEXT NOT NULL DEFAULT '',      -- cancel=主动撤销核查 / system=录用流程回退被动撤销
+  cancel_reason TEXT NOT NULL DEFAULT '',
+  cancelled_at TEXT NOT NULL DEFAULT '',
+  cancelled_by TEXT NOT NULL DEFAULT '',
+  cancelled_by_name TEXT NOT NULL DEFAULT '',
+  backfilled INTEGER NOT NULL DEFAULT 0,     -- 历史已入职记录补录（免核查）
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_bgc_app ON background_checks(application_id, id);
+-- 进行中（复核中/已通过/已不通过）的背调同一应聘唯一；撤销/补录免核查后允许重新发起
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bgc_app_active
+  ON background_checks(application_id) WHERE status IN ('reviewing','passed','failed');
+
+-- 背调留痕：发起/核查项更新/复核通过/复核不通过/撤销结论/撤销核查/催办/系统撤销/补录，只追加不改写
+CREATE TABLE IF NOT EXISTS background_check_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  check_id INTEGER NOT NULL,
+  phase TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,                    -- create/item_update/conclude/revoke/cancel/remind/system_cancel/migrate
+  party TEXT NOT NULL DEFAULT 'system',    -- recruiter/hiring_manager/system
+  actor_id TEXT NOT NULL DEFAULT '',
+  actor_name TEXT NOT NULL DEFAULT '',
+  actor_role TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_bgc_events_check ON background_check_events(check_id, id);
+
 -- 不可篡改兜底：危机审计链拒绝 UPDATE / DELETE（应用层哈希校验 + 数据库触发器双重保护）
 CREATE TRIGGER IF NOT EXISTS trg_crisis_entries_no_update
 BEFORE UPDATE ON crisis_audit_entries

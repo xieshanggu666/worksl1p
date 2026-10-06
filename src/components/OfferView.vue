@@ -44,6 +44,10 @@ function saveSalary() {
 
 function setStatus(a, status) {
   if (!isRecruiter.value) { store.notify('error', '该操作需「招聘负责人」身份'); return }
+  if (status === 'joined' && !bgcGate(a)) {
+    store.notify('error', '背调尚未通过，不能确认入职；请先在「入职背调」发起核查并取得通过结论')
+    return
+  }
   store.setOffer(a.offer.id, status, a.version)
 }
 function withdraw(a) {
@@ -55,6 +59,10 @@ function withdraw(a) {
 function onboardingOf(a) {
   return store.activeOnboardingOf(a.id)
 }
+// 入职背调闸门：通过/免核查才允许「确认入职」
+function bgcOf(a) { return store.backgroundCheckOf(a.id) }
+function bgcGate(a) { return store.canJoinByBgc(a.id) }
+function goBackground() { store.goView('background') }
 function goOnboarding() { store.goView('onboarding') }
 
 const ofStatus = s => ({
@@ -110,16 +118,24 @@ function busy(id) { return !!store.pending[`offer:${id}`] }
                 <button class="primary sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="setStatus(a, 'rejected')">拒绝</button>
                 <button class="warn sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="withdraw(a)">撤回</button>
               </template>
-              <!-- 已接受（=录用待入职）：确认入职或撤回；入职交接在「入职交接」页办理 -->
+              <!-- 已接受（=录用待入职）：确认入职或撤回；入职交接在「入职交接」页办理；背调通过是入职闸门 -->
               <template v-else-if="a.offer.status === 'accepted'">
-                <button class="succ sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="setStatus(a, 'joined')">确认入职</button>
+                <button class="succ sm" :disabled="busy(a.offer.id) || !isRecruiter || !bgcGate(a)"
+                  :title="bgcGate(a) ? '' : (bgcOf(a) ? `背调状态：${bgcOf(a).status_label}，通过后才能入职` : '尚未发起入职背调')"
+                  @click="setStatus(a, 'joined')">确认入职</button>
                 <button class="warn sm" :disabled="busy(a.offer.id) || !isRecruiter" @click="withdraw(a)">撤回</button>
+                <button class="ghost sm bgc-btn" :class="{ locked: !bgcGate(a) }" @click="goBackground">
+                  🔍 {{ bgcOf(a) ? `背调·${bgcOf(a).status_label}` : '发起入职背调' }}
+                </button>
                 <button class="ghost sm onb-btn" @click="goOnboarding">
                   {{ onboardingOf(a) ? `🧳 交接中（${onboardingOf(a).phase_label}）` : '🧳 入职交接' }}
                 </button>
               </template>
-              <!-- 已入职：查看/补办入职交接（报到确认会自动把 Offer 回写为已入职） -->
+              <!-- 已入职：背调通过/免核查；查看背调与交接（报到确认会自动把 Offer 回写为已入职） -->
               <template v-else-if="a.offer.status === 'joined'">
+                <button class="ghost sm bgc-btn" @click="goBackground">
+                  🔍 {{ bgcOf(a) ? `背调·${bgcOf(a).status_label}` : '背调记录' }}
+                </button>
                 <button class="ghost sm onb-btn" @click="goOnboarding">
                   {{ onboardingOf(a) ? `🧳 交接中（${onboardingOf(a).phase_label}）` : '🧳 入职交接' }}
                 </button>
@@ -196,4 +212,6 @@ button.sm { font-size: 11px; padding: 4px 9px; }
 .appr-pending-chip { font-size: 11px; color: var(--accent2); background: rgba(255,209,102,.1); border: 1px solid rgba(255,209,102,.4); border-radius: 10px; padding: 3px 9px; white-space: nowrap; }
 .band-tip { font-size: 12px; color: var(--accent2); background: rgba(255,209,102,.1); border: 1px solid rgba(255,209,102,.35); border-radius: 8px; padding: 7px 10px; margin-bottom: 12px; }
 .onb-btn { color: var(--green); border-color: rgba(87,214,160,.45); }
+.bgc-btn { color: #4fc3f7; border-color: rgba(79,195,247,.45); }
+.bgc-btn.locked { color: var(--red); border-color: rgba(255,107,122,.45); }
 </style>

@@ -143,6 +143,10 @@ function confirmCheckin() {
   const ob = detail.value
   if (!checkinDate.value) { store.notify('error', '请选择实际报到日期'); return }
   if (!probationEnd.value) { store.notify('error', '请选择试用截止日期'); return }
+  if (!store.canJoinByBgc(ob.application_id)) {
+    store.notify('error', '背调尚未通过，不能确认报到；请先在「入职背调」取得用人经理的通过结论')
+    return
+  }
   store.checkinOnboarding(ob.id, { version: ob.version, checkin_at: checkinDate.value, probation_end: probationEnd.value, note: checkinNote.value })
 }
 function openNoShow(ob) { noShowId.value = ob.id; noShowReason.value = '' }
@@ -175,6 +179,10 @@ function confirmCancel() {
 }
 
 function evTime(t) { return t ? String(t).replace('T', ' ').slice(0, 16) : '' }
+// 入职背调闸门：报到前必须结论「通过」（历史免核查除外）
+function bgcOf(ob) { return store.backgroundCheckOf(ob.application_id) }
+function bgcPassed(ob) { return store.canJoinByBgc(ob.application_id) }
+function goBackground() { store.goView('background') }
 </script>
 
 <template>
@@ -372,13 +380,22 @@ function evTime(t) { return t ? String(t).replace('T', ' ').slice(0, 16) : '' }
           <div class="block" v-if="detail.phase === 'checkin'">
             <h4>③ 报到登记</h4>
             <div class="check-info">审批已通过（{{ detail.decided_by_name }}），等待候选人按约定 {{ detail.entry_date }} 报到。报到确认后系统将把 Offer 回写为「已入职」并进入试用交接。</div>
+            <!-- 入职背调闸门：未通过禁止报到 -->
+            <div class="bgc-gate" v-if="!bgcPassed(detail)">
+              <span>🔒 背调{{ bgcOf(detail) ? `状态「${bgcOf(detail).status_label}」` : '尚未发起' }}，候选人不能确认报到（撤销结论也会在此拦截）。</span>
+              <button class="ghost sm" @click="goBackground">前往入职背调 →</button>
+            </div>
+            <div class="bgc-gate ok" v-else>
+              ✅ 背调结论「{{ bgcOf(detail)?.status_label || '通过' }}」（{{ bgcOf(detail)?.reviewed_by_name }}），入职闸门已开启，可登记报到。
+            </div>
             <div class="pgrid">
-              <label>实际报到日期<input type="date" v-model="checkinDate" :disabled="!isRecruiter" /></label>
-              <label>试用截止日期<input type="date" v-model="probationEnd" :disabled="!isRecruiter" /></label>
-              <label class="span2">报到备注<input v-model="checkinNote" placeholder="工位/陪同人等（可选）" :disabled="!isRecruiter" /></label>
+              <label>实际报到日期<input type="date" v-model="checkinDate" :disabled="!isRecruiter || !bgcPassed(detail)" /></label>
+              <label>试用截止日期<input type="date" v-model="probationEnd" :disabled="!isRecruiter || !bgcPassed(detail)" /></label>
+              <label class="span2">报到备注<input v-model="checkinNote" placeholder="工位/陪同人等（可选）" :disabled="!isRecruiter || !bgcPassed(detail)" /></label>
             </div>
             <div class="block-acts" v-if="isRecruiter">
-              <button class="primary" :disabled="busy(`onb-checkin:${detail.id}`)" @click="confirmCheckin">🏢 确认报到并回写已入职</button>
+              <button class="primary" :disabled="busy(`onb-checkin:${detail.id}`) || !bgcPassed(detail)"
+                :title="bgcPassed(detail) ? '' : '背调通过后才能确认报到'" @click="confirmCheckin">🏢 确认报到并回写已入职</button>
               <button class="warn" @click="openNoShow(detail)">⚠️ 登记未报到</button>
             </div>
           </div>
@@ -565,6 +582,8 @@ button.sm { font-size: 11px; padding: 4px 9px; }
 .approval-chain > em { font-style: normal; color: var(--muted); }
 .mat-summary { font-size: 12.5px; color: var(--muted); background: rgba(13,18,32,.3); border-radius: 8px; padding: 9px 11px; }
 .check-info { font-size: 12.5px; color: var(--muted); }
+.bgc-gate { display: flex; align-items: center; gap: 10px; justify-content: space-between; flex-wrap: wrap; font-size: 12.5px; color: var(--red); background: rgba(255,107,122,.08); border: 1px solid rgba(255,107,122,.32); border-radius: 8px; padding: 8px 11px; }
+.bgc-gate.ok { color: var(--green); background: rgba(87,214,160,.08); border-color: rgba(87,214,160,.32); }
 .ho-list { display: flex; flex-direction: column; gap: 7px; }
 .ho-item { display: grid; grid-template-columns: 1fr 120px 80px; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 9px; background: rgba(13,18,32,.25); }
 .ho-item.done { border-color: rgba(87,214,160,.35); opacity: .92; }
